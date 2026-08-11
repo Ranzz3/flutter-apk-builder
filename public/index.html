@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pterodactyl Panel</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 250px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar .logo {
+            font-size: 20px;
+            font-weight: bold;
+            color: #58a6ff;
+            margin-bottom: 30px;
+        }
+        .sidebar nav a {
+            display: block;
+            padding: 12px 16px;
+            color: #c9d1d9;
+            text-decoration: none;
+            border-radius: 8px;
+            margin-bottom: 5px;
+            transition: background 0.2s;
+        }
+        .sidebar nav a:hover, .sidebar nav a.active {
+            background: #1f2937;
+            color: #58a6ff;
+        }
+        .main {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 24px;
+        }
+        .btn {
+            padding: 10px 20px;
+            background: #238636;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn:hover { background: #2ea043; }
+        .btn-danger { background: #da3633; }
+        .btn-danger:hover { background: #f85149; }
+        .btn-secondary { background: #30363d; }
+        .btn-secondary:hover { background: #444c56; }
+        
+        .server-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .server-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            transition: border 0.3s;
+        }
+        .server-card:hover { border-color: #58a6ff; }
+        .server-card .name { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .server-card .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-running { background: #238636; color: white; }
+        .status-stopped { background: #da3633; color: white; }
+        .status-installing { background: #d29922; color: black; }
+        
+        .console {
+            background: #000;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #00ff00;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .command-input {
+            display: flex;
+            gap: 10px;
+        }
+        .command-input input {
+            flex: 1;
+            padding: 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            color: #c9d1d9;
+            outline: none;
+        }
+        .command-input input:focus { border-color: #58a6ff; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="logo">🦖 PTERODACTYL</div>
+        <nav>
+            <a href="#" onclick="showPage('servers')" class="active">Servers</a>
+            <a href="#" onclick="showPage('eggs')">Eggs</a>
+            <a href="#" onclick="showPage('stats')">Statistics</a>
+            <a href="#" onclick="showPage('account')">Account</a>
+            <a href="#" onclick="logout()">Logout</a>
+        </nav>
+    </div>
+    
+    <div class="main" id="mainContent">
+        <!-- Dynamic content -->
+    </div>
+
+    <script>
+        const API = '/api';
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const socket = io();
+        let currentServer = null;
+        
+        if (!user.id) window.location.href = '/login';
+        
+        async function showPage(page) {
+            const main = document.getElementById('mainContent');
+            
+            switch(page) {
+                case 'servers':
+                    await loadServers();
+                    break;
+                case 'eggs':
+                    await loadEggs();
+                    break;
+                case 'stats':
+                    await loadStats();
+                    break;
+                case 'account':
+                    showAccount();
+                    break;
+            }
+        }
+        
+        async function loadServers() {
+            const main = document.getElementById('mainContent');
+            const res = await fetch(`${API}/servers?userId=${user.id}`);
+            const data = await res.json();
+            
+            main.innerHTML = `
+                <div class="header">
+                    <h1>📟 My Servers</h1>
+                    <button class="btn" onclick="createServer()">+ Create Server</button>
+                </div>
+                <div class="server-list">
+                    ${data.servers.map(s => `
+                        <div class="server-card">
+                            <div class="name">${s.name}</div>
+                            <div>ID: ${s.id}</div>
+                            <div>Memory: ${s.memory} MB</div>
+                            <div>Port: ${s.port}</div>
+                            <div style="margin: 10px 0;">
+                                <span class="status status-${s.status}">${s.status.toUpperCase()}</span>
+                            </div>
+                            <button class="btn" onclick="openServer('${s.id}')">Manage</button>
+                            <button class="btn btn-secondary" onclick="powerAction('${s.id}', '${s.status === 'running' ? 'stop' : 'start'}')">
+                                ${s.status === 'running' ? '⏹ Stop' : '▶ Start'}
+                            </button>
+                            ${s.status === 'running' ? '<button class="btn btn-secondary" onclick="powerAction(\'' + s.id + '\', \'restart\')">🔄 Restart</button>' : ''}
+                            <button class="btn btn-danger" onclick="deleteServer('${s.id}')">🗑 Delete</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        async function openServer(serverId) {
+            currentServer = serverId;
+            socket.emit('join-server', serverId);
+            
+            const res = await fetch(`${API}/servers/${serverId}`);
+            const data = await res.json();
+            const s = data.server;
+            
+            const main = document.getElementById('mainContent');
+            main.innerHTML = `
+                <div class="header">
+                    <h1>📟 ${s.name} (${s.id})</h1>
+                    <div>
+                        <button class="btn ${s.status === 'running' ? 'btn-danger' : ''}" onclick="powerAction('${s.id}', '${s.status === 'running' ? 'stop' : 'start'}')">
+                            ${s.status === 'running' ? '⏹ Stop' : '▶ Start'}
+                        </button>
+                        ${s.status === 'running' ? '<button class="btn btn-secondary" onclick="powerAction(\'' + s.id + '\', \'restart\')">🔄 Restart</button>' : ''}
+                        <button class="btn btn-secondary" onclick="showPage('servers')">← Back</button>
+                    </div>
+                </div>
+                
+                <div>
+                    Status: <span class="status status-${s.status}">${s.status.toUpperCase()}</span>
+                    | Port: ${s.port} | Memory: ${s.memory}MB | CPU: ${s.cpu}%
+                </div>
+                
+                <h3 style="margin-top: 20px;">Console</h3>
+                <div class="console" id="console"></div>
+                
+                <div class="command-input">
+                    <input type="text" id="commandInput" placeholder="Ketik command..." onkeypress="if(event.key==='Enter') sendCommand()">
+                    <button class="btn" onclick="sendCommand()">Send</button>
+                </div>
+                
+                <h3 style="margin-top: 20px;">File Manager</h3>
+                <div id="fileManager"></div>
+            `;
+            
+            socket.on('console-output', (data) => {
+                if (data.serverId === serverId) {
+                    const consoleEl = document.getElementById('console');
+                    if (consoleEl) {
+                        consoleEl.innerHTML += data.data;
+                        consoleEl.scrollTop = consoleEl.scrollHeight;
+                    }
+                }
+            });
+            
+            loadFiles(serverId);
+        }
+        
+        function sendCommand() {
+            const input = document.getElementById('commandInput');
+            const command = input.value.trim();
+            if (!command || !currentServer) return;
+            
+            socket.emit('send-command', { serverId: currentServer, command });
+            document.getElementById('console').innerHTML += `\n> ${command}\n`;
+            input.value = '';
+        }
+        
+        async function powerAction(serverId, action) {
+            await fetch(`${API}/servers/${serverId}/power`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action })
+            });
+            setTimeout(() => showPage('servers'), 1000);
+        }
+        
+        async function createServer() {
+            const name = prompt('Nama server:');
+            if (!name) return;
+            
+            const eggId = prompt('Egg ID (nodejs):', 'nodejs');
+            
+            await fetch(`${API}/servers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    userId: user.id,
+                    eggId: eggId || 'nodejs',
+                    memory: 512,
+                    cpu: 100,
+                    disk: 1024
+                })
+            });
+            
+            showPage('servers');
+        }
+        
+        async function deleteServer(serverId) {
+            if (!confirm('Yakin hapus server?')) return;
+            await fetch(`${API}/servers/${serverId}`, { method: 'DELETE' });
+            showPage('servers');
+        }
+        
+        async function loadFiles(serverId) {
+            const res = await fetch(`${API}/servers/${serverId}/files`);
+            const data = await res.json();
+            
+            document.getElementById('fileManager').innerHTML = data.files.map(f => `
+                <div style="padding: 8px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between;">
+                    <span>${f.isDirectory ? '📁' : '📄'} ${f.name} (${(f.size/1024).toFixed(1)} KB)</span>
+                    <span>
+                        ${!f.isDirectory ? '<button class="btn btn-secondary" onclick="editFile(\'' + serverId + '\', \'' + f.path + '\')">Edit</button>' : ''}
+                    </span>
+                </div>
+            `).join('');
+        }
+        
+        async function editFile(serverId, filePath) {
+            const res = await fetch(`${API}/servers/${serverId}/files/read?path=${filePath}`);
+            const data = await res.json();
+            
+            const newContent = prompt(`Edit: ${filePath}`, data.content);
+            if (newContent !== null) {
+                await fetch(`${API}/servers/${serverId}/files/write`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: filePath, content: newContent })
+                });
+                loadFiles(serverId);
+            }
+        }
+        
+        async function loadEggs() {
+            const res = await fetch(`${API}/eggs`);
+            const data = await res.json();
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="header"><h1>🥚 Eggs</h1></div>
+                ${data.eggs.map(e => `
+                    <div class="server-card">
+                        <div class="name">${e.name}</div>
+                        <div>${e.description}</div>
+                        <div>Version: ${e.version}</div>
+                        <div>Startup: ${e.startup_command}</div>
+                        <div style="margin-top: 10px;">
+                            <button class="btn" onclick="createServerWithEgg('${e.name.toLowerCase()}')">Create Server</button>
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        async function loadStats() {
+            const res = await fetch(`${API}/stats`);
+            const data = await res.json();
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="header"><h1>📊 Statistics</h1></div>
+                <div class="server-list">
+                    <div class="server-card">
+                        <div class="name">Servers</div>
+                        <div>Total: ${data.servers.total}</div>
+                        <div>Running: ${data.servers.running}</div>
+                        <div>Stopped: ${data.servers.stopped}</div>
+                    </div>
+                    <div class="server-card">
+                        <div class="name">Users</div>
+                        <div>Total: ${data.users}</div>
+                    </div>
+                    <div class="server-card">
+                        <div class="name">System</div>
+                        <div>Uptime: ${Math.floor(data.uptime)}s</div>
+                        <div>Memory: ${(data.memory.heapUsed/1024/1024).toFixed(1)} MB</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function showAccount() {
+            document.getElementById('mainContent').innerHTML = `
+                <div class="header"><h1>👤 Account</h1></div>
+                <div class="server-card">
+                    <div>Username: ${user.username}</div>
+                    <div>Email: ${user.email}</div>
+                    <div>Name: ${user.firstName} ${user.lastName}</div>
+                    <div>API Key: <code>${user.apiKey}</code></div>
+                    <div>Role: ${user.isAdmin ? 'Admin' : 'User'}</div>
+                </div>
+            `;
+        }
+        
+        function logout() {
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+        }
+        
+        // Load servers by default
+        showPage('servers');
+    </script>
+</body>
+</html>
