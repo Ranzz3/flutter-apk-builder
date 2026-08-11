@@ -1,0 +1,19 @@
+{
+  "name": "Node.js",
+  "description": "Node.js runtime environment",
+  "author": "RanzModss",
+  "version": "1.0.0",
+  "features": ["node", "npm", "npx"],
+  "docker_image": "node:18-alpine",
+  "startup_command": "node {{SERVER_FILE}}",
+  "environment": {
+    "SERVER_FILE": "index.js",
+    "NODE_ENV": "production",
+    "PORT": "{{SERVER_PORT}}"
+  },
+  "default_allocation": {
+    "memory": 512,
+    "cpu": 100,
+    "disk": 1024
+  }
+}
